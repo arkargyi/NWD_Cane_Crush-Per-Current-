@@ -1,0 +1,5 @@
+{
+  "name": "Cane Carrier Current Dashboard",
+  "description": "Visualizes average side cane carrier and tumbler currents across different TCD rate ranges.",
+  "requestFramePermissions": []
+}
