@@ -15,7 +15,7 @@ import {
   ComposedChart,
   Rectangle,
 } from 'recharts';
-import { Activity, Zap, Gauge, Cpu, BarChart3, LineChart as LineChartIcon, AreaChart as AreaChartIcon, LayoutDashboard, Download, FileJson, Image as ImageIcon } from 'lucide-react';
+import { Activity, Zap, Gauge, Cpu, BarChart3, LineChart as LineChartIcon, AreaChart as AreaChartIcon, LayoutDashboard, Download, FileJson, Image as ImageIcon, Search } from 'lucide-react';
 import { toPng } from 'html-to-image';
 
 // Filtered data: Removed zero-value ranges '1750 - 1999' and '2500 - 2749'
@@ -151,12 +151,22 @@ const CustomTooltip = ({ active, payload, label }: any) => {
 
 export default function App() {
   const [chartStyle, setChartStyle] = useState('bar');
+  const [manualTcd, setManualTcd] = useState<string>('');
   const chartRef = useRef<HTMLDivElement>(null);
 
   const overallMaxTcd = Math.max(...data.map((d) => d.max_tcd));
   const maxCarrierCurrent = Math.max(...data.map((d) => d.carrier_current));
   const maxTumblerCurrent = Math.max(...data.map((d) => d.tumbler_current));
   const maxKickerCurrent = Math.max(...data.map((d) => d.kicker_current));
+
+  const getManualData = (tcd: number) => {
+    if (isNaN(tcd)) return null;
+    return data.find(d => {
+      const [min, max] = d.tcd_rate_range.split(' - ').map(Number);
+      return tcd >= min && tcd <= max;
+    });
+  };
+  const manualResult = getManualData(parseFloat(manualTcd));
 
   const exportToCSV = () => {
     const headers = ['TCD Rate Range', 'Max TCD', 'Carrier Current (A)', 'Tumbler Current (A)', 'Kicker Current (A)', 'Data Points'];
@@ -314,6 +324,54 @@ export default function App() {
                 <p className="text-sm font-semibold text-slate-500 uppercase tracking-wider">Max Kicker</p>
                 <p className="text-3xl font-bold text-slate-900">{maxKickerCurrent.toFixed(3)} A</p>
               </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Manual TCD Lookup */}
+        <div className="rounded-2xl bg-white p-6 shadow-md border border-slate-200">
+          <div className="flex flex-col md:flex-row gap-6 items-start md:items-center">
+            <div className="w-full md:w-1/3">
+              <label htmlFor="tcd-input" className="block text-sm font-bold text-slate-800 mb-2">Manual TCD Lookup</label>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <Search className="h-5 w-5 text-slate-400" />
+                </div>
+                <input
+                  id="tcd-input"
+                  type="number"
+                  value={manualTcd}
+                  onChange={(e) => setManualTcd(e.target.value)}
+                  placeholder="Enter TCD Rate (e.g., 3600)"
+                  className="w-full pl-10 pr-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all shadow-sm"
+                />
+              </div>
+            </div>
+            <div className="w-full md:w-2/3 flex flex-wrap gap-4 mt-4 md:mt-0">
+              {manualTcd === '' ? (
+                <div className="flex items-center justify-center w-full h-full min-h-[76px] bg-slate-50 rounded-xl border border-slate-200 border-dashed">
+                  <p className="text-slate-500 text-sm font-medium">Enter a TCD value to see corresponding currents.</p>
+                </div>
+              ) : manualResult ? (
+                <div className="flex w-full gap-4 flex-wrap md:flex-nowrap">
+                  <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 flex-1 min-w-[120px] shadow-sm">
+                    <p className="text-xs text-blue-600 font-bold uppercase tracking-wider mb-1">Carrier</p>
+                    <p className="text-2xl font-black text-blue-900">{manualResult.carrier_current.toFixed(3)} <span className="text-sm font-medium text-blue-700">A</span></p>
+                  </div>
+                  <div className="bg-orange-50 border border-orange-100 rounded-xl p-4 flex-1 min-w-[120px] shadow-sm">
+                    <p className="text-xs text-orange-600 font-bold uppercase tracking-wider mb-1">Tumbler</p>
+                    <p className="text-2xl font-black text-orange-900">{manualResult.tumbler_current.toFixed(3)} <span className="text-sm font-medium text-orange-700">A</span></p>
+                  </div>
+                  <div className="bg-purple-50 border border-purple-100 rounded-xl p-4 flex-1 min-w-[120px] shadow-sm">
+                    <p className="text-xs text-purple-600 font-bold uppercase tracking-wider mb-1">Kicker</p>
+                    <p className="text-2xl font-black text-purple-900">{manualResult.kicker_current.toFixed(3)} <span className="text-sm font-medium text-purple-700">A</span></p>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center justify-center w-full h-full min-h-[76px] bg-rose-50 rounded-xl border border-rose-200">
+                  <p className="text-rose-600 text-sm font-medium">No data available for this TCD rate. Try a value between 1500 and 4749.</p>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -548,6 +606,21 @@ export default function App() {
             </table>
           </div>
         </div>
+
+        {/* Footer */}
+        <footer className="pt-8 pb-4 text-center">
+          <a
+            href="https://arkarsoe-profolio-showcase.vercel.app/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-block group"
+          >
+            <span className="text-lg font-black tracking-wide bg-clip-text text-transparent bg-gradient-to-r from-blue-600 via-purple-500 to-orange-500 drop-shadow-sm group-hover:drop-shadow-md group-hover:brightness-110 transition-all duration-300">
+              Created By AKS_Tech Channel
+            </span>
+            <div className="h-0.5 w-0 bg-gradient-to-r from-blue-600 via-purple-500 to-orange-500 group-hover:w-full transition-all duration-300 mx-auto mt-1 rounded-full"></div>
+          </a>
+        </footer>
       </div>
     </div>
   );
