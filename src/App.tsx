@@ -15,11 +15,11 @@ import {
   ComposedChart,
   Rectangle,
 } from 'recharts';
-import { Activity, Zap, Gauge, Cpu, BarChart3, LineChart as LineChartIcon, AreaChart as AreaChartIcon, LayoutDashboard, Download, FileJson, Image as ImageIcon, Search } from 'lucide-react';
+import { Activity, Zap, Gauge, Cpu, BarChart3, LineChart as LineChartIcon, AreaChart as AreaChartIcon, LayoutDashboard, Download, FileJson, Image as ImageIcon, Search, Plus, Loader2 } from 'lucide-react';
 import { toPng } from 'html-to-image';
 
-// Filtered data: Removed zero-value ranges '1750 - 1999' and '2500 - 2749'
-const data = [
+// Initial Filtered data
+const initialData = [
   {
     tcd_rate_range: '1500 - 1749',
     max_tcd: 1701.32,
@@ -150,29 +150,90 @@ const CustomTooltip = ({ active, payload, label }: any) => {
 };
 
 export default function App() {
+  const [chartData, setChartData] = useState(initialData);
   const [chartStyle, setChartStyle] = useState('bar');
   const [manualTcd, setManualTcd] = useState<string>('');
+  const [newEntry, setNewEntry] = useState({ tcd: '', carrier: '', tumbler: '', kicker: '' });
+  const [isLoading, setIsLoading] = useState(false);
   const chartRef = useRef<HTMLDivElement>(null);
 
-  const overallMaxTcd = Math.max(...data.map((d) => d.max_tcd));
-  const maxCarrierCurrent = Math.max(...data.map((d) => d.carrier_current));
-  const maxTumblerCurrent = Math.max(...data.map((d) => d.tumbler_current));
-  const maxKickerCurrent = Math.max(...data.map((d) => d.kicker_current));
+  const overallMaxTcd = chartData.length > 0 ? Math.max(...chartData.map((d) => d.max_tcd)) : 0;
+  const maxCarrierCurrent = chartData.length > 0 ? Math.max(...chartData.map((d) => d.carrier_current)) : 0;
+  const maxTumblerCurrent = chartData.length > 0 ? Math.max(...chartData.map((d) => d.tumbler_current)) : 0;
+  const maxKickerCurrent = chartData.length > 0 ? Math.max(...chartData.map((d) => d.kicker_current)) : 0;
 
   const getManualData = (tcd: number) => {
     if (isNaN(tcd)) return null;
-    return data.find(d => {
+    return chartData.find(d => {
       const [min, max] = d.tcd_rate_range.split(' - ').map(Number);
       return tcd >= min && tcd <= max;
     });
   };
   const manualResult = getManualData(parseFloat(manualTcd));
 
+  const handleAddData = (e: React.FormEvent) => {
+    e.preventDefault();
+    const tcd = parseFloat(newEntry.tcd);
+    const carrier = parseFloat(newEntry.carrier);
+    const tumbler = parseFloat(newEntry.tumbler);
+    const kicker = parseFloat(newEntry.kicker);
+
+    if (isNaN(tcd) || isNaN(carrier) || isNaN(tumbler) || isNaN(kicker)) return;
+
+    setIsLoading(true);
+
+    // Simulate processing delay for visual feedback
+    setTimeout(() => {
+      const rangeStart = Math.floor(tcd / 250) * 250;
+      const rangeStr = `${rangeStart} - ${rangeStart + 249}`;
+
+      setChartData(prevData => {
+        const existingIndex = prevData.findIndex(d => d.tcd_rate_range === rangeStr);
+        let newData = [...prevData];
+
+        if (existingIndex >= 0) {
+          const old = newData[existingIndex];
+          const newDp = old.data_points + 1;
+          newData[existingIndex] = {
+            ...old,
+            max_tcd: Math.max(old.max_tcd, tcd),
+            carrier_current: ((old.carrier_current * old.data_points) + carrier) / newDp,
+            tumbler_current: ((old.tumbler_current * old.data_points) + tumbler) / newDp,
+            kicker_current: ((old.kicker_current * old.data_points) + kicker) / newDp,
+            data_points: newDp
+          };
+        } else {
+          newData.push({
+            tcd_rate_range: rangeStr,
+            max_tcd: tcd,
+            carrier_current: carrier,
+            tumbler_current: tumbler,
+            kicker_current: kicker,
+            data_points: 1
+          });
+        }
+
+        // Sort by range start
+        newData.sort((a, b) => {
+          const aStart = parseInt(a.tcd_rate_range.split(' - ')[0]);
+          const bStart = parseInt(b.tcd_rate_range.split(' - ')[0]);
+          return aStart - bStart;
+        });
+
+        return newData;
+      });
+
+      // Reset form and loading state
+      setNewEntry({ tcd: '', carrier: '', tumbler: '', kicker: '' });
+      setIsLoading(false);
+    }, 800);
+  };
+
   const exportToCSV = () => {
     const headers = ['TCD Rate Range', 'Max TCD', 'Carrier Current (A)', 'Tumbler Current (A)', 'Kicker Current (A)', 'Data Points'];
     const csvContent = [
       headers.join(','),
-      ...data.map(row => [
+      ...chartData.map(row => [
         `"${row.tcd_rate_range}"`,
         row.max_tcd.toFixed(2),
         row.carrier_current.toFixed(3),
@@ -328,57 +389,82 @@ export default function App() {
           </div>
         </div>
 
-        {/* Manual TCD Lookup */}
-        <div className="rounded-2xl bg-white p-6 shadow-md border border-slate-200">
-          <div className="flex flex-col md:flex-row gap-6 items-start md:items-center">
-            <div className="w-full md:w-1/3">
-              <label htmlFor="tcd-input" className="block text-sm font-bold text-slate-800 mb-2">Manual TCD Lookup</label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <Search className="h-5 w-5 text-slate-400" />
-                </div>
-                <input
-                  id="tcd-input"
-                  type="number"
-                  value={manualTcd}
-                  onChange={(e) => setManualTcd(e.target.value)}
-                  placeholder="Enter TCD Rate (e.g., 3600)"
-                  className="w-full pl-10 pr-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all shadow-sm"
-                />
+        {/* Interactive Controls */}
+        <div className="grid gap-6 lg:grid-cols-2">
+          {/* Manual TCD Lookup */}
+          <div className="rounded-2xl bg-white p-6 shadow-md border border-slate-200 flex flex-col">
+            <label htmlFor="tcd-input" className="block text-sm font-bold text-slate-800 mb-4">Manual TCD Lookup</label>
+            <div className="relative mb-4">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <Search className="h-5 w-5 text-slate-400" />
               </div>
+              <input
+                id="tcd-input"
+                type="number"
+                value={manualTcd}
+                onChange={(e) => setManualTcd(e.target.value)}
+                placeholder="Enter TCD Rate (e.g., 3600)"
+                className="w-full pl-10 pr-4 py-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all shadow-sm"
+              />
             </div>
-            <div className="w-full md:w-2/3 flex flex-wrap gap-4 mt-4 md:mt-0">
+            <div className="flex-1 flex flex-col justify-center">
               {manualTcd === '' ? (
-                <div className="flex items-center justify-center w-full h-full min-h-[76px] bg-slate-50 rounded-xl border border-slate-200 border-dashed">
+                <div className="flex items-center justify-center w-full h-[88px] bg-slate-50 rounded-xl border border-slate-200 border-dashed">
                   <p className="text-slate-500 text-sm font-medium">Enter a TCD value to see corresponding currents.</p>
                 </div>
               ) : manualResult ? (
-                <div className="flex w-full gap-4 flex-wrap md:flex-nowrap">
-                  <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 flex-1 min-w-[120px] shadow-sm">
-                    <p className="text-xs text-blue-600 font-bold uppercase tracking-wider mb-1">Carrier</p>
-                    <p className="text-2xl font-black text-blue-900">{manualResult.carrier_current.toFixed(3)} <span className="text-sm font-medium text-blue-700">A</span></p>
+                <div className="flex w-full gap-3">
+                  <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 flex-1 shadow-sm text-center">
+                    <p className="text-[10px] text-blue-600 font-bold uppercase tracking-wider mb-1">Carrier</p>
+                    <p className="text-xl font-black text-blue-900">{manualResult.carrier_current.toFixed(3)} <span className="text-xs font-medium text-blue-700">A</span></p>
                   </div>
-                  <div className="bg-orange-50 border border-orange-100 rounded-xl p-4 flex-1 min-w-[120px] shadow-sm">
-                    <p className="text-xs text-orange-600 font-bold uppercase tracking-wider mb-1">Tumbler</p>
-                    <p className="text-2xl font-black text-orange-900">{manualResult.tumbler_current.toFixed(3)} <span className="text-sm font-medium text-orange-700">A</span></p>
+                  <div className="bg-orange-50 border border-orange-100 rounded-xl p-3 flex-1 shadow-sm text-center">
+                    <p className="text-[10px] text-orange-600 font-bold uppercase tracking-wider mb-1">Tumbler</p>
+                    <p className="text-xl font-black text-orange-900">{manualResult.tumbler_current.toFixed(3)} <span className="text-xs font-medium text-orange-700">A</span></p>
                   </div>
-                  <div className="bg-purple-50 border border-purple-100 rounded-xl p-4 flex-1 min-w-[120px] shadow-sm">
-                    <p className="text-xs text-purple-600 font-bold uppercase tracking-wider mb-1">Kicker</p>
-                    <p className="text-2xl font-black text-purple-900">{manualResult.kicker_current.toFixed(3)} <span className="text-sm font-medium text-purple-700">A</span></p>
+                  <div className="bg-purple-50 border border-purple-100 rounded-xl p-3 flex-1 shadow-sm text-center">
+                    <p className="text-[10px] text-purple-600 font-bold uppercase tracking-wider mb-1">Kicker</p>
+                    <p className="text-xl font-black text-purple-900">{manualResult.kicker_current.toFixed(3)} <span className="text-xs font-medium text-purple-700">A</span></p>
                   </div>
                 </div>
               ) : (
-                <div className="flex items-center justify-center w-full h-full min-h-[76px] bg-rose-50 rounded-xl border border-rose-200">
-                  <p className="text-rose-600 text-sm font-medium">No data available for this TCD rate. Try a value between 1500 and 4749.</p>
+                <div className="flex items-center justify-center w-full h-[88px] bg-rose-50 rounded-xl border border-rose-200">
+                  <p className="text-rose-600 text-sm font-medium text-center px-4">No data available for this TCD rate. Try a value between 1500 and 4749.</p>
                 </div>
               )}
             </div>
           </div>
+
+          {/* Add New Data Point */}
+          <div className="rounded-2xl bg-white p-6 shadow-md border border-slate-200 flex flex-col">
+            <label className="block text-sm font-bold text-slate-800 mb-4">Add New Data Point</label>
+            <form onSubmit={handleAddData} className="flex flex-col flex-1 gap-4">
+              <div className="grid grid-cols-2 gap-3">
+                <input type="number" step="any" placeholder="TCD Rate" required value={newEntry.tcd} onChange={e => setNewEntry({...newEntry, tcd: e.target.value})} className="w-full px-3 py-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all shadow-sm text-sm" />
+                <input type="number" step="any" placeholder="Carrier (A)" required value={newEntry.carrier} onChange={e => setNewEntry({...newEntry, carrier: e.target.value})} className="w-full px-3 py-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all shadow-sm text-sm" />
+                <input type="number" step="any" placeholder="Tumbler (A)" required value={newEntry.tumbler} onChange={e => setNewEntry({...newEntry, tumbler: e.target.value})} className="w-full px-3 py-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all shadow-sm text-sm" />
+                <input type="number" step="any" placeholder="Kicker (A)" required value={newEntry.kicker} onChange={e => setNewEntry({...newEntry, kicker: e.target.value})} className="w-full px-3 py-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all shadow-sm text-sm" />
+              </div>
+              <button type="submit" className="mt-auto w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 rounded-xl font-semibold transition-colors shadow-sm">
+                <Plus className="w-4 h-4" /> Add to Dataset
+              </button>
+            </form>
+          </div>
         </div>
 
         {/* Main Chart Display */}
-        <div ref={chartRef} className="space-y-8 p-4 bg-slate-100 rounded-3xl">
+        <div ref={chartRef} className="space-y-8 p-4 bg-slate-100 rounded-3xl relative">
           
+          {/* Loading Overlay */}
+          {isLoading && (
+            <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-100/70 backdrop-blur-sm rounded-3xl">
+              <div className="flex flex-col items-center gap-4 bg-white p-8 rounded-2xl shadow-xl border border-slate-200">
+                <Loader2 className="w-12 h-12 text-emerald-600 animate-spin" />
+                <p className="text-slate-700 font-bold text-lg animate-pulse">Processing Data...</p>
+              </div>
+            </div>
+          )}
+
           {/* Style 1: Bar Chart */}
           {chartStyle === 'bar' && (
             <div className="rounded-2xl bg-white p-6 shadow-md border border-slate-200">
@@ -388,7 +474,7 @@ export default function App() {
               </div>
               <div className="h-[500px] w-full">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={data} margin={{ top: 20, right: 30, left: 0, bottom: 25 }}>
+                  <BarChart data={chartData} margin={{ top: 20, right: 30, left: 0, bottom: 25 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
                     <XAxis 
                       dataKey="tcd_rate_range" 
@@ -445,7 +531,7 @@ export default function App() {
               </div>
               <div className="h-[500px] w-full">
                 <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={data} margin={{ top: 20, right: 30, left: 0, bottom: 25 }}>
+                  <LineChart data={chartData} margin={{ top: 20, right: 30, left: 0, bottom: 25 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
                     <XAxis 
                       dataKey="tcd_rate_range" 
@@ -481,7 +567,7 @@ export default function App() {
               </div>
               <div className="h-[500px] w-full">
                 <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={data} margin={{ top: 20, right: 30, left: 0, bottom: 25 }}>
+                  <AreaChart data={chartData} margin={{ top: 20, right: 30, left: 0, bottom: 25 }}>
                     <defs>
                       <linearGradient id="colorCarrier" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="5%" stopColor={COLORS.carrier} stopOpacity={0.3}/>
@@ -531,7 +617,7 @@ export default function App() {
               </div>
               <div className="h-[500px] w-full">
                 <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={data} margin={{ top: 20, right: 30, left: 0, bottom: 25 }}>
+                  <ComposedChart data={chartData} margin={{ top: 20, right: 30, left: 0, bottom: 25 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
                     <XAxis 
                       dataKey="tcd_rate_range" 
@@ -592,7 +678,7 @@ export default function App() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">
-                {data.map((row, i) => (
+                {chartData.map((row, i) => (
                   <tr key={i} className="hover:bg-slate-50 transition-colors">
                     <td className="px-6 py-4 font-semibold text-slate-900">{row.tcd_rate_range}</td>
                     <td className="px-6 py-4 font-mono font-medium">{row.max_tcd.toFixed(2)}</td>
