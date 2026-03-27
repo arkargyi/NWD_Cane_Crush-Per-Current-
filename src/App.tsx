@@ -273,7 +273,7 @@ export default function App() {
         <header className="mb-8 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
           <div>
             <h1 className="text-3xl font-bold tracking-tight text-slate-900">
-              Cane Carrier Current Analysis
+              MIS Dashboard Cane Carrier Per Current(A) 
             </h1>
             <p className="text-slate-600 mt-2 text-lg">
               Detailed view of currents by TCD rate ranges (250 intervals)
