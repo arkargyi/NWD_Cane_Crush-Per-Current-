@@ -15,7 +15,7 @@ import {
   ComposedChart,
   Rectangle,
 } from 'recharts';
-import { Activity, Zap, Gauge, Cpu, BarChart3, LineChart as LineChartIcon, AreaChart as AreaChartIcon, LayoutDashboard, Download, FileJson, Image as ImageIcon, Search, Plus, Loader2 } from 'lucide-react';
+import { Activity, Zap, Gauge, Cpu, BarChart3, LineChart as LineChartIcon, AreaChart as AreaChartIcon, LayoutDashboard, Download, FileJson, Image as ImageIcon, Search, Plus, Loader2, Upload, Calculator } from 'lucide-react';
 import { toPng } from 'html-to-image';
 
 // Initial Filtered data
@@ -149,13 +149,44 @@ const CustomTooltip = ({ active, payload, label }: any) => {
   return null;
 };
 
+const calculateAggregation = (arr: number[], method: 'Average' | 'Median' | 'Max') => {
+  if (!arr || arr.length === 0) return 0;
+  if (method === 'Max') return Math.max(...arr);
+  if (method === 'Average') return arr.reduce((a, b) => a + b, 0) / arr.length;
+  if (method === 'Median') {
+    const sorted = [...arr].sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    return sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+  }
+  return 0;
+};
+
 export default function App() {
-  const [chartData, setChartData] = useState(initialData);
+  const [rawChartData, setRawChartData] = useState(() => initialData.map(d => ({
+    tcd_rate_range: d.tcd_rate_range,
+    max_tcd: d.max_tcd,
+    carrier_currents: Array(d.data_points).fill(d.carrier_current),
+    tumbler_currents: Array(d.data_points).fill(d.tumbler_current),
+    kicker_currents: Array(d.data_points).fill(d.kicker_current),
+    data_points: d.data_points,
+  })));
+  
+  const [aggregation, setAggregation] = useState<'Average' | 'Median' | 'Max'>('Average');
   const [chartStyle, setChartStyle] = useState('bar');
   const [manualTcd, setManualTcd] = useState<string>('');
   const [newEntry, setNewEntry] = useState({ tcd: '', carrier: '', tumbler: '', kicker: '' });
   const [isLoading, setIsLoading] = useState(false);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const chartRef = useRef<HTMLDivElement>(null);
+
+  const chartData = rawChartData.map(d => ({
+    tcd_rate_range: d.tcd_rate_range,
+    max_tcd: d.max_tcd,
+    carrier_current: calculateAggregation(d.carrier_currents, aggregation),
+    tumbler_current: calculateAggregation(d.tumbler_currents, aggregation),
+    kicker_current: calculateAggregation(d.kicker_currents, aggregation),
+    data_points: d.data_points,
+  }));
 
   const overallMaxTcd = chartData.length > 0 ? Math.max(...chartData.map((d) => d.max_tcd)) : 0;
   const maxCarrierCurrent = chartData.length > 0 ? Math.max(...chartData.map((d) => d.carrier_current)) : 0;
@@ -187,7 +218,7 @@ export default function App() {
       const rangeStart = Math.floor(tcd / 250) * 250;
       const rangeStr = `${rangeStart} - ${rangeStart + 249}`;
 
-      setChartData(prevData => {
+      setRawChartData(prevData => {
         const existingIndex = prevData.findIndex(d => d.tcd_rate_range === rangeStr);
         let newData = [...prevData];
 
@@ -197,18 +228,18 @@ export default function App() {
           newData[existingIndex] = {
             ...old,
             max_tcd: Math.max(old.max_tcd, tcd),
-            carrier_current: ((old.carrier_current * old.data_points) + carrier) / newDp,
-            tumbler_current: ((old.tumbler_current * old.data_points) + tumbler) / newDp,
-            kicker_current: ((old.kicker_current * old.data_points) + kicker) / newDp,
+            carrier_currents: [...old.carrier_currents, carrier],
+            tumbler_currents: [...old.tumbler_currents, tumbler],
+            kicker_currents: [...old.kicker_currents, kicker],
             data_points: newDp
           };
         } else {
           newData.push({
             tcd_rate_range: rangeStr,
             max_tcd: tcd,
-            carrier_current: carrier,
-            tumbler_current: tumbler,
-            kicker_current: kicker,
+            carrier_currents: [carrier],
+            tumbler_currents: [tumbler],
+            kicker_currents: [kicker],
             data_points: 1
           });
         }
@@ -225,6 +256,162 @@ export default function App() {
 
       // Reset form and loading state
       setNewEntry({ tcd: '', carrier: '', tumbler: '', kicker: '' });
+      setIsLoading(false);
+      setSuccessMessage(`Successfully added 1 data point for TCD ${tcd}!`);
+      setTimeout(() => setSuccessMessage(null), 4000);
+    }, 800);
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsLoading(true);
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const text = event.target?.result as string;
+      processCSVData(text);
+    };
+    reader.onerror = () => {
+      alert("Error reading file");
+      setIsLoading(false);
+    };
+    reader.readAsText(file);
+    
+    // Reset input so the same file can be uploaded again if needed
+    e.target.value = '';
+  };
+
+  const processCSVData = (csvText: string) => {
+    const lines = csvText.split('\n').filter(line => line.trim() !== '');
+    if (lines.length === 0) {
+      setIsLoading(false);
+      return;
+    }
+
+    const firstLine = lines[0].toLowerCase();
+    // Detect if it's our exported aggregated format or raw data format
+    const isAggregated = firstLine.includes('range') || firstLine.includes('data points');
+    let startIndex = (firstLine.includes('tcd') || firstLine.includes('carrier')) ? 1 : 0;
+
+    setTimeout(() => {
+      const parsedRows: any[] = [];
+
+      for (let i = startIndex; i < lines.length; i++) {
+        // Basic CSV split, removing quotes
+        const cols = lines[i].split(',').map(c => c.trim().replace(/['"]/g, ''));
+
+        if (isAggregated && cols.length >= 6) {
+          const maxTcd = parseFloat(cols[1]);
+          const carrier = parseFloat(cols[2]);
+          const tumbler = parseFloat(cols[3]);
+          const kicker = parseFloat(cols[4]);
+          const dp = parseInt(cols[5], 10);
+
+          if (!isNaN(maxTcd) && !isNaN(carrier) && !isNaN(tumbler) && !isNaN(kicker) && !isNaN(dp)) {
+            parsedRows.push({ type: 'agg', cols });
+          }
+        } else if (!isAggregated && cols.length >= 4) {
+          const tcd = parseFloat(cols[0]);
+          const carrier = parseFloat(cols[1]);
+          const tumbler = parseFloat(cols[2]);
+          const kicker = parseFloat(cols[3]);
+
+          if (!isNaN(tcd) && !isNaN(carrier) && !isNaN(tumbler) && !isNaN(kicker)) {
+            parsedRows.push({ type: 'raw', cols });
+          }
+        }
+      }
+
+      if (parsedRows.length === 0) {
+        alert("No valid data rows found in the CSV. Please ensure the format is correct (TCD, Carrier, Tumbler, Kicker).");
+        setIsLoading(false);
+        return;
+      }
+
+      setRawChartData(prevData => {
+        let newData = [...prevData];
+
+        parsedRows.forEach(row => {
+          if (row.type === 'agg') {
+            const cols = row.cols;
+            const rangeStr = cols[0];
+            const maxTcd = parseFloat(cols[1]);
+            const carrier = parseFloat(cols[2]);
+            const tumbler = parseFloat(cols[3]);
+            const kicker = parseFloat(cols[4]);
+            const dp = parseInt(cols[5], 10);
+
+            const existingIndex = newData.findIndex(d => d.tcd_rate_range === rangeStr);
+            if (existingIndex >= 0) {
+              const old = newData[existingIndex];
+              const newDp = old.data_points + dp;
+              newData[existingIndex] = {
+                ...old,
+                max_tcd: Math.max(old.max_tcd, maxTcd),
+                carrier_currents: [...old.carrier_currents, ...Array(dp).fill(carrier)],
+                tumbler_currents: [...old.tumbler_currents, ...Array(dp).fill(tumbler)],
+                kicker_currents: [...old.kicker_currents, ...Array(dp).fill(kicker)],
+                data_points: newDp
+              };
+            } else {
+              newData.push({
+                tcd_rate_range: rangeStr,
+                max_tcd: maxTcd,
+                carrier_currents: Array(dp).fill(carrier),
+                tumbler_currents: Array(dp).fill(tumbler),
+                kicker_currents: Array(dp).fill(kicker),
+                data_points: dp
+              });
+            }
+          } else {
+            const cols = row.cols;
+            const tcd = parseFloat(cols[0]);
+            const carrier = parseFloat(cols[1]);
+            const tumbler = parseFloat(cols[2]);
+            const kicker = parseFloat(cols[3]);
+
+            const rangeStart = Math.floor(tcd / 250) * 250;
+            const rangeStr = `${rangeStart} - ${rangeStart + 249}`;
+            const existingIndex = newData.findIndex(d => d.tcd_rate_range === rangeStr);
+
+            if (existingIndex >= 0) {
+              const old = newData[existingIndex];
+              const newDp = old.data_points + 1;
+              newData[existingIndex] = {
+                ...old,
+                max_tcd: Math.max(old.max_tcd, tcd),
+                carrier_currents: [...old.carrier_currents, carrier],
+                tumbler_currents: [...old.tumbler_currents, tumbler],
+                kicker_currents: [...old.kicker_currents, kicker],
+                data_points: newDp
+              };
+            } else {
+              newData.push({
+                tcd_rate_range: rangeStr,
+                max_tcd: tcd,
+                carrier_currents: [carrier],
+                tumbler_currents: [tumbler],
+                kicker_currents: [kicker],
+                data_points: 1
+              });
+            }
+          }
+        });
+
+        // Sort by range start
+        newData.sort((a, b) => {
+          const aStart = parseInt(a.tcd_rate_range.split(' - ')[0]);
+          const bStart = parseInt(b.tcd_rate_range.split(' - ')[0]);
+          return aStart - bStart;
+        });
+
+        return newData;
+      });
+
+      setSuccessMessage(`Successfully imported ${parsedRows.length} data points!`);
+      setTimeout(() => setSuccessMessage(null), 4000);
       setIsLoading(false);
     }, 800);
   };
@@ -281,6 +468,24 @@ export default function App() {
           </div>
           
           <div className="flex flex-wrap items-center gap-4">
+            {/* Aggregation Selector */}
+            <div className="flex bg-white p-1 rounded-xl shadow-sm border border-slate-200">
+              {(['Average', 'Median', 'Max'] as const).map((agg) => (
+                <button
+                  key={agg}
+                  onClick={() => setAggregation(agg)}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                    aggregation === agg ? 'bg-emerald-600 text-white shadow-md' : 'text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  {agg === 'Average' && <Calculator className="w-4 h-4" />}
+                  {agg === 'Median' && <Activity className="w-4 h-4" />}
+                  {agg === 'Max' && <Gauge className="w-4 h-4" />}
+                  {agg}
+                </button>
+              ))}
+            </div>
+
             {/* Chart Style Selector */}
             <div className="flex bg-white p-1 rounded-xl shadow-sm border border-slate-200">
               <button
@@ -340,6 +545,16 @@ export default function App() {
             </div>
           </div>
         </header>
+
+        {/* Success Message Banner */}
+        {successMessage && (
+          <div className="mb-6 p-4 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-xl flex items-center gap-3 shadow-sm animate-in fade-in slide-in-from-top-4 duration-300">
+            <div className="bg-emerald-100 p-1.5 rounded-lg">
+              <Plus className="w-5 h-5 text-emerald-600" />
+            </div>
+            <p className="font-medium">{successMessage}</p>
+          </div>
+        )}
 
         {/* KPI Cards */}
         <div className="grid gap-6 md:grid-cols-4">
@@ -437,7 +652,26 @@ export default function App() {
 
           {/* Add New Data Point */}
           <div className="rounded-2xl bg-white p-6 shadow-md border border-slate-200 flex flex-col">
-            <label className="block text-sm font-bold text-slate-800 mb-4">Add New Data Point</label>
+            <div className="flex justify-between items-center mb-4">
+              <label className="block text-sm font-bold text-slate-800">Add New Data Point</label>
+              <div>
+                <input
+                  type="file"
+                  accept=".csv"
+                  id="csv-upload"
+                  className="hidden"
+                  onChange={handleFileUpload}
+                />
+                <label
+                  htmlFor="csv-upload"
+                  className="cursor-pointer flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-700 border border-blue-200 rounded-lg text-xs font-bold hover:bg-blue-100 transition-all shadow-sm"
+                  title="Import CSV (Format: TCD, Carrier, Tumbler, Kicker)"
+                >
+                  <Upload className="w-3.5 h-3.5" />
+                  Bulk Import CSV
+                </label>
+              </div>
+            </div>
             <form onSubmit={handleAddData} className="flex flex-col flex-1 gap-4">
               <div className="grid grid-cols-2 gap-3">
                 <input type="number" step="any" placeholder="TCD Rate" required value={newEntry.tcd} onChange={e => setNewEntry({...newEntry, tcd: e.target.value})} className="w-full px-3 py-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all shadow-sm text-sm" />
@@ -656,7 +890,7 @@ export default function App() {
         {/* Data Table */}
         <div className="rounded-2xl bg-white shadow-md border border-slate-200 overflow-hidden mt-8">
           <div className="p-6 border-b border-slate-200 bg-slate-50 flex justify-between items-center">
-            <h2 className="text-xl font-bold text-slate-800">Detailed Data Table</h2>
+            <h2 className="text-xl font-bold text-slate-800">Detailed Data Table ({aggregation})</h2>
             <button
               onClick={exportToCSV}
               className="flex items-center gap-2 px-3 py-1.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg text-xs font-bold hover:bg-emerald-100 transition-all"
