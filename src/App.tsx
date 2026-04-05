@@ -417,7 +417,7 @@ export default function App() {
   };
 
   const exportToCSV = () => {
-    const headers = ['TCD Rate Range', 'Max TCD', 'Carrier Current (A)', 'Tumbler Current (A)', 'Kicker Current (A)', 'Data Points'];
+    const headers = ['TCD Rate Range', 'Max TCD', 'Side Cane Carrier Current (A)', 'Side Cane Tumbler Current (A)', 'Side Cane Kicker Current (A)', 'Data Points'];
     const csvContent = [
       headers.join(','),
       ...chartData.map(row => [
